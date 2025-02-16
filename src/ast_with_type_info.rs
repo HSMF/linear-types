@@ -125,7 +125,7 @@ impl Statement {
                 typ: typ.to_owned(),
                 span: *span,
             },
-            Statement::Return { expr, typ, span } => ast::Statement::Return {
+            Statement::Return { expr, span, .. } => ast::Statement::Return {
                 expr: expr.as_source(),
                 span: *span,
             },
