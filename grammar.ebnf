@@ -1,0 +1,40 @@
+program ::= item*
+
+item ::= typeDecl
+       | funcDecl
+
+typeDecl ::= 'type' ident '=' type
+
+type ::= ident
+       | 'ref' type
+       | '(' [types] [','] ')'
+
+types ::= type
+        | type ',' types
+
+arg ::= ident ':' type
+args ::= arg
+        | arg ',' args
+
+funcDecl ::= 'fn' ident '(' [args] [','] ')' '->' type block
+
+
+block ::= '{' {statement} '}'
+
+pat ::= ident
+      | '(' comma_sep(pat) ')'
+
+
+statement ::= 'let' pat ':' type '=' expr ';'
+            | 'return' expr ';'
+
+expr ::= term { ('+'|'-') term }
+
+term ::= factor { ('*'|'/') factor}
+
+factor ::= 'new' expr
+        | '(' expr ')'
+        | factor '(' comma_sep(expr) ')' # 'new', '(', ident
+        | '+' expr
+        | '-' expr
+        | ident
