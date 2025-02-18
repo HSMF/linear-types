@@ -52,6 +52,10 @@ fn visualize_tokens(s: &str) {
 #[derive(clap::Parser)]
 struct App {
     file: PathBuf,
+    #[clap(short = 'l', long)]
+    emit_llvm_ir: bool,
+    #[clap(long)]
+    opt_level: Option<i32>,
 }
 
 fn main() {
@@ -69,7 +73,15 @@ fn main() {
     let prog = infer_types::infer(prog).expect("was able to infer types");
 
     let ctx = Context::create();
-    let compiled = Codegen::compile(&ctx, "hello_world", &prog);
+    let mut compiled = Codegen::compile(&ctx, "hello_world", &prog);
+
+    if app.emit_llvm_ir {
+        compiled.print_to_stderr();
+    }
+
+    if let Some(opt_level) = app.opt_level {
+        compiled.set_opt_level(opt_level);
+    }
 
     compiled.emit("./target/foo.o").expect("could emit");
     std::process::Command::new("clang")

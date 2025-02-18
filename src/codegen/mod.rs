@@ -1,5 +1,3 @@
-#![allow(unused_imports)]
-
 use std::{collections::HashMap, path::Path, rc::Rc};
 
 use inkwell::{
@@ -7,16 +5,14 @@ use inkwell::{
     context::Context,
     module::Module,
     targets::{InitializationConfig, Target, TargetMachine},
-    types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType},
-    values::{
-        AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue,
-    },
-    AddressSpace,
+    types::{BasicType, BasicTypeEnum, FunctionType},
+    values::{BasicValue, BasicValueEnum, FunctionValue},
+    AddressSpace, OptimizationLevel,
 };
 
 use crate::{
     ast::{Pat, Type},
-    ast_with_type_info::{self, Expression, FuncDecl, Item, Program, Statement},
+    ast_with_type_info::{Expression, FuncDecl, Item, Program, Statement},
 };
 
 pub struct Codegen<'a> {
@@ -290,11 +286,25 @@ impl<'a> Codegen<'a> {
 
 pub struct Compiled<'a> {
     module: Module<'a>,
+    opt_level: OptimizationLevel,
 }
 
 impl<'a> Compiled<'a> {
     fn new(module: Module<'a>) -> Self {
-        Self { module }
+        Self {
+            module,
+            opt_level: OptimizationLevel::None,
+        }
+    }
+
+    pub fn set_opt_level(&mut self, opt_level: i32) {
+        let opt_level = match opt_level {
+            x if x < 0 => OptimizationLevel::Less,
+            0 => OptimizationLevel::None,
+            1 => OptimizationLevel::Default,
+            _ => OptimizationLevel::Aggressive,
+        };
+        self.opt_level = opt_level;
     }
 
     #[allow(dead_code)]
@@ -318,7 +328,7 @@ impl<'a> Compiled<'a> {
                 &default_triple,
                 cpu.to_str().expect("valid utf-8"),
                 features,
-                inkwell::OptimizationLevel::None,
+                self.opt_level,
                 inkwell::targets::RelocMode::Default,
                 inkwell::targets::CodeModel::Default,
             )
