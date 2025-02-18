@@ -1,4 +1,7 @@
-use std::fmt::{Display, Formatter, Result};
+use std::{
+    fmt::{Display, Formatter, Result},
+    rc::Rc,
+};
 
 use crate::span::Span;
 
@@ -35,9 +38,9 @@ pub struct TypeDecl {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Var(String, Span),
-    Ref(Box<Type>, Span),
+    Ref(Rc<Type>, Span),
     Product(Vec<Type>, Span),
-    Fun(Vec<Type>, Box<Type>, Span),
+    Fun(Vec<Type>, Rc<Type>, Span),
 }
 
 impl Spanned for Type {
@@ -128,6 +131,10 @@ pub enum Expression {
         args: Vec<Expression>,
         span: Span,
     },
+    Tuple {
+        elems: Vec<Expression>,
+        span: Span,
+    },
     Var {
         name: String,
         span: Span,
@@ -144,6 +151,7 @@ impl Spanned for Expression {
             Expression::Binop { span, .. }
             | Expression::New { span, .. }
             | Expression::Call { span, .. }
+            | Expression::Tuple { span, .. }
             | Expression::Int { span, .. }
             | Expression::Var { span, .. } => *span,
         }
@@ -169,7 +177,7 @@ where
 }
 
 impl Expression {
-    fn display(&self, f: &mut Formatter<'_>, prec: i32) -> Result {
+    fn display(&self, f: &mut Formatter<'_>, _prec: i32) -> Result {
         match self {
             Expression::Binop {
                 left, right, op, ..
@@ -199,6 +207,12 @@ impl Expression {
             }
             Expression::Call { func, args, .. } => {
                 func.display(f, 3)?;
+                write!(f, "(")?;
+                comma_sep(args, |x, f| x.display(f, 3), f)?;
+                write!(f, ")")?;
+                Ok(())
+            }
+            Expression::Tuple { elems: args, .. } => {
                 write!(f, "(")?;
                 comma_sep(args, |x, f| x.display(f, 3), f)?;
                 write!(f, ")")?;
@@ -278,7 +292,7 @@ impl Display for Type {
 impl Type {
     pub fn as_func(&self) -> Option<(&[Type], &Type, Span)> {
         match self {
-            Type::Fun(items, res, span) => Some((items, &*res, *span)),
+            Type::Fun(items, res, span) => Some((items, res, *span)),
             _ => None,
         }
     }

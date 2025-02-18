@@ -1,0 +1,10 @@
+type t = (int, int)
+
+fn foo() -> t {
+    return (1, 2);
+}
+
+fn main() -> int {
+    let (a, b) : t = foo();
+    return a;
+}

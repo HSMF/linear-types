@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashMap, fmt::Display, rc::Rc};
 
-use anyhow::Result;
+pub type Result<T> = std::result::Result<T, TypeError>;
 
 use crate::{
     ast::{self, Pat, Spanned, Type},
@@ -26,6 +26,84 @@ struct Ctx {
     type_variables: HashMap<String, Rc<Type>>,
 }
 
+impl Ctx {
+    fn type_doesnt_contain_var(t: &Type, v: &str) -> Option<Span> {
+        match t {
+            Type::Var(var, span) => (var == v).then_some(*span),
+            Type::Ref(inner, ..) => Ctx::type_doesnt_contain_var(&*inner, v),
+            Type::Product(items, ..) => {
+                for item in items {
+                    if let Some(x) = Ctx::type_doesnt_contain_var(&*item, v) {
+                        return Some(x);
+                    }
+                }
+                None
+            }
+            Type::Fun(items, res, ..) => {
+                for item in items {
+                    if let Some(x) = Ctx::type_doesnt_contain_var(&*item, v) {
+                        return Some(x);
+                    }
+                }
+                Ctx::type_doesnt_contain_var(&*res, v)
+            }
+        }
+    }
+
+    /// resolves type variables
+    fn normalize_type(&self, t: Rc<Type>) -> Result<Rc<Type>> {
+        match &*t {
+            Type::Var(v, ..) if v == "int" => Ok(t),
+            Type::Var(v, span) => {
+                let var = self
+                    .type_variables
+                    .get(v)
+                    .ok_or_else(|| TypeError::msg(format!("{v} not found"), *span))?;
+
+                if let Some(span) = Ctx::type_doesnt_contain_var(&*var, &v) {
+                    return Err(TypeError::msg(
+                        format!("type variable {v} occurs recursively"),
+                        span,
+                    ));
+                }
+
+                self.normalize_type(Rc::clone(var))
+            }
+            Type::Ref(inner, span) => {
+                let new = Type::Ref(self.normalize_type(Rc::clone(inner))?, *span);
+                Ok(Rc::new(new))
+            }
+            Type::Product(items, span) => {
+                let new = Type::Product(
+                    items
+                        .iter()
+                        .map(|i| {
+                            self.normalize_type(Rc::new(i.clone()))
+                                .map(|x| (*x).clone())
+                        })
+                        .collect::<Result<_>>()?,
+                    *span,
+                );
+                Ok(Rc::new(new))
+            }
+            Type::Fun(items, ret, span) => {
+                let new = Type::Fun(
+                    items
+                        .iter()
+                        .map(|i| {
+                            self.normalize_type(Rc::new(i.clone()))
+                                .map(|x| (*x).clone())
+                        })
+                        .collect::<Result<_>>()?,
+                    self.normalize_type(Rc::clone(ret))?,
+                    *span,
+                );
+                Ok(Rc::new(new))
+            }
+        }
+    }
+}
+
 impl TypeError {
     fn new(msg: &'static str, span: Span) -> Self {
         Self {
@@ -46,7 +124,7 @@ fn int() -> Rc<Type> {
     Rc::new(Type::Var(String::from("int"), Span::empty()))
 }
 
-fn infer_type_of_expr(e: ast::Expression, ctx: &Ctx) -> Result<(Rc<Type>, Expression), TypeError> {
+fn infer_type_of_expr(e: ast::Expression, ctx: &Ctx) -> Result<(Rc<Type>, Expression)> {
     match e {
         ast::Expression::Binop {
             left,
@@ -70,6 +148,17 @@ fn infer_type_of_expr(e: ast::Expression, ctx: &Ctx) -> Result<(Rc<Type>, Expres
             ))
         }
         ast::Expression::New { .. } => todo!(),
+        ast::Expression::Tuple { elems, span } => {
+            let elems = elems
+                .into_iter()
+                .map(|x| infer_type_of_expr(x, ctx))
+                .collect::<Result<Vec<_>>>()?;
+            let (types, elems) = elems.into_iter().map(|(t, e)| ((*t).clone(), e)).unzip();
+            let typ = Rc::new(Type::Product(types, Span::empty()));
+            let typ = ctx.normalize_type(typ)?;
+
+            Ok((Rc::clone(&typ), Expression::Tuple { elems, span, typ }))
+        }
         ast::Expression::Call { func, args, span } => {
             let fspan = func.span();
             let (tf, func) = infer_type_of_expr(*func, ctx)?;
@@ -80,9 +169,10 @@ fn infer_type_of_expr(e: ast::Expression, ctx: &Ctx) -> Result<(Rc<Type>, Expres
             let args = args
                 .into_iter()
                 .map(|e| infer_type_of_expr(e, ctx).map(|(_, x)| x))
-                .collect::<Result<_, _>>()?;
+                .collect::<Result<_>>()?;
 
             let typ = Rc::new(res.clone());
+            let typ = ctx.normalize_type(typ)?;
             Ok((
                 Rc::clone(&typ),
                 Expression::Call {
@@ -98,14 +188,8 @@ fn infer_type_of_expr(e: ast::Expression, ctx: &Ctx) -> Result<(Rc<Type>, Expres
                 .variables
                 .get(&name)
                 .ok_or(TypeError::msg(format!("unknown variable {name}"), span))?;
-            Ok((
-                Rc::clone(typ),
-                Expression::Var {
-                    name,
-                    span,
-                    typ: Rc::clone(typ),
-                },
-            ))
+            let typ = ctx.normalize_type(Rc::clone(typ))?;
+            Ok((Rc::clone(&typ), Expression::Var { name, span, typ }))
         }
         ast::Expression::Int { value, span } => Ok((
             int(),
@@ -118,7 +202,7 @@ fn infer_type_of_expr(e: ast::Expression, ctx: &Ctx) -> Result<(Rc<Type>, Expres
     }
 }
 
-pub fn infer(prog: ast::Program) -> Result<Program, TypeError> {
+pub fn infer(prog: ast::Program) -> Result<Program> {
     let type_variables: HashMap<_, _> = prog
         .0
         .iter()
@@ -138,7 +222,7 @@ pub fn infer(prog: ast::Program) -> Result<Program, TypeError> {
                  ..
              }| {
                 let args = args.iter().map(|arg| arg.typ.clone()).collect();
-                let typ = Type::Fun(args, Box::new(ret_typ.to_owned()), Span::empty());
+                let typ = Type::Fun(args, Rc::new(ret_typ.to_owned()), Span::empty());
                 (name.to_owned(), Rc::new(typ))
             },
         )
@@ -156,7 +240,7 @@ pub fn infer(prog: ast::Program) -> Result<Program, TypeError> {
                 ast::Item::Type(type_decl) => Ok(Item::Type(type_decl)),
                 ast::Item::Func(func) => Ok(Item::Func(infer_func(func, &ctx)?)),
             })
-            .collect::<Result<_, _>>()?,
+            .collect::<Result<_>>()?,
     ))
 }
 
@@ -169,7 +253,7 @@ fn infer_func(
         span,
     }: ast::FuncDecl,
     ctx: &Ctx,
-) -> Result<FuncDecl, TypeError> {
+) -> Result<FuncDecl> {
     let mut ctx = ctx.to_owned();
 
     for arg in &args {
@@ -177,34 +261,64 @@ fn infer_func(
             .insert(arg.var.to_owned(), Rc::new(arg.typ.to_owned()));
     }
 
+    let args = args
+        .into_iter()
+        .map(|ast::Arg { var, typ, span }| -> Result<_> {
+            Ok(ast::Arg {
+                var,
+                typ: (*(ctx.normalize_type(Rc::new(typ))?)).to_owned(),
+                span,
+            })
+        })
+        .collect::<Result<_>>()?;
+
     let body = infer_block(body, &ctx)?;
     Ok(FuncDecl {
         name,
         args,
-        ret_typ,
+        ret_typ: (*(ctx.normalize_type(Rc::new(ret_typ))?)).clone(),
         body,
         span,
     })
 }
 
-fn infer_block(body: Vec<ast::Statement>, ctx: &Ctx) -> Result<Vec<Statement>, TypeError> {
+fn infer_block(body: Vec<ast::Statement>, ctx: &Ctx) -> Result<Vec<Statement>> {
     let mut ctx = ctx.to_owned();
     body.into_iter()
         .map(|stmt| infer_statement(stmt, &mut ctx))
         .collect()
 }
 
-fn assign_type_to_pattern(p: &Pat, t: Rc<Type>, ctx: &mut Ctx) -> Result<(), TypeError> {
+fn assign_type_to_pattern(p: &Pat, t: Rc<Type>, ctx: &mut Ctx) -> Result<()> {
     match p {
         Pat::Single(v, ..) => {
             ctx.variables.insert(v.to_owned(), t);
             Ok(())
         }
-        Pat::Tuple(_, span) => Err(TypeError::new("unhandled case: tuple pattern", *span)),
+        Pat::Tuple(patterns, span) => {
+            let Type::Product(types, span) = &*t else {
+                return Err(TypeError::msg(format!("{t:?} is not a tuple"), *span));
+            };
+            if patterns.len() != types.len() {
+                return Err(TypeError::msg(
+                    format!(
+                        "cannot assign a {} tuple to {} patterns",
+                        types.len(),
+                        patterns.len()
+                    ),
+                    *span,
+                ));
+            }
+            for (pattern, typ) in patterns.iter().zip(types.iter()) {
+                assign_type_to_pattern(pattern, Rc::new(typ.clone()), ctx)?;
+            }
+
+            Ok(())
+        }
     }
 }
 
-fn infer_statement(stmt: ast::Statement, ctx: &mut Ctx) -> Result<Statement, TypeError> {
+fn infer_statement(stmt: ast::Statement, ctx: &mut Ctx) -> Result<Statement> {
     match stmt {
         ast::Statement::Let {
             pattern,
@@ -214,6 +328,7 @@ fn infer_statement(stmt: ast::Statement, ctx: &mut Ctx) -> Result<Statement, Typ
         } => {
             let (t, expr) = infer_type_of_expr(expr, ctx)?;
             assign_type_to_pattern(&pattern, t, ctx)?;
+            let typ = ctx.normalize_type(Rc::new(typ))?;
             Ok(Statement::Let {
                 pattern,
                 expr,

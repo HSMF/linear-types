@@ -31,7 +31,7 @@ pub enum Statement {
     Let {
         pattern: ast::Pat,
         expr: Expression,
-        typ: Type,
+        typ: Rc<Type>,
         span: Span,
     },
     Return {
@@ -52,6 +52,11 @@ pub enum Expression {
     },
     New {
         inner: Box<Expression>,
+        span: Span,
+        typ: Rc<Type>,
+    },
+    Tuple {
+        elems: Vec<Expression>,
         span: Span,
         typ: Rc<Type>,
     },
@@ -92,6 +97,10 @@ impl Expression {
                 inner: Box::new(inner.as_source()),
                 span: *span,
             },
+            Expression::Tuple { elems, span, .. } => ast::Expression::Tuple {
+                elems: elems.iter().map(|x| x.as_source()).collect(),
+                span: *span,
+            },
             Expression::Call {
                 func, args, span, ..
             } => ast::Expression::Call {
@@ -122,7 +131,7 @@ impl Statement {
             } => ast::Statement::Let {
                 pattern: pattern.to_owned(),
                 expr: expr.as_source(),
-                typ: typ.to_owned(),
+                typ: (**typ).clone(),
                 span: *span,
             },
             Statement::Return { expr, span, .. } => ast::Statement::Return {
@@ -152,6 +161,7 @@ impl Expression {
             Expression::Binop { typ, .. }
             | Expression::New { typ, .. }
             | Expression::Call { typ, .. }
+            | Expression::Tuple { typ, .. }
             | Expression::Var { typ, .. }
             | Expression::Int { typ, .. } => Rc::clone(typ),
         }

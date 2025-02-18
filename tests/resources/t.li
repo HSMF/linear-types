@@ -1,0 +1,11 @@
+type x = (int, (int,x))
+type i = int
+
+fn f(x: int) -> int {
+    return 2 * x + 3;
+}
+
+fn main() -> int {
+    let x : int = 7 + 1 * f(1);
+    return x;
+}

@@ -1,10 +1,12 @@
-#![allow(unused_variables, unused_imports)]
-use std::{collections::HashMap, rc::Rc};
+#![allow(unused_imports)]
+
+use std::{collections::HashMap, path::Path, rc::Rc};
 
 use inkwell::{
     builder::{Builder, BuilderError},
     context::Context,
     module::Module,
+    targets::{InitializationConfig, Target, TargetMachine},
     types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType},
     values::{
         AnyValueEnum, BasicMetadataValueEnum, BasicValue, BasicValueEnum, FunctionValue, IntValue,
@@ -43,8 +45,8 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    pub fn compile(llvm: &'a Context, mod_name: &str, prog: &Program) {
-        let mut build = Codegen::new(llvm, "hello_world");
+    pub fn compile(llvm: &'a Context, mod_name: &str, prog: &Program) -> Compiled<'a> {
+        let mut build = Codegen::new(llvm, mod_name);
 
         for item in &prog.0 {
             match item {
@@ -71,40 +73,60 @@ impl<'a> Codegen<'a> {
                 }
             }
         }
-        build.print_to_stderr();
+
+        Compiled::new(build.module)
     }
 
     fn compile_typ_bare(llvm: &'a Context, typ: &Type) -> BasicTypeEnum<'a> {
         match typ {
-            Type::Var(name, span) => match name.as_str() {
+            Type::Var(name, _span) => match name.as_str() {
                 "int" => llvm.i64_type().into(),
-                _ => todo!(),
+                _ => todo!("compile type variable {name}"),
             },
-            Type::Ref(_, span) => todo!(),
-            Type::Product(items, span) => todo!(),
-            Type::Fun(args, ret, span) => todo!(),
+            _ => llvm.ptr_type(AddressSpace::default()).into(),
+        }
+    }
+
+    fn compile_typ_derefed_bare(llvm: &'a Context, typ: &Type) -> BasicTypeEnum<'a> {
+        match typ {
+            Type::Var(name, _span) => match name.as_str() {
+                "int" => llvm.i64_type().into(),
+                _ => todo!("compile type variable {name}"),
+            },
+            Type::Ref(_, _span) => todo!(),
+            Type::Product(items, _span) => {
+                let item_types: Vec<_> = items
+                    .iter()
+                    .map(|x| Self::compile_typ_bare(llvm, x))
+                    .collect();
+
+                llvm.struct_type(&item_types, false).into()
+            }
+            Type::Fun(_args, _ret, _span) => todo!(),
         }
     }
 
     fn compile_typ(&self, typ: &Type) -> BasicTypeEnum<'a> {
         Self::compile_typ_bare(self.llvm, typ)
     }
+    fn compile_typ_derefed(&self, typ: &Type) -> BasicTypeEnum<'a> {
+        Self::compile_typ_derefed_bare(self.llvm, typ)
+    }
 
-    fn compile_func_typ(&self, args: &[Type], typ: &Type) -> FunctionType<'a> {
-        let args: Vec<_> = args.iter().map(|t| self.compile_typ(t).into()).collect();
+    fn compile_func_typ<'b>(
+        &self,
+        args: impl IntoIterator<Item = &'b Type>,
+        typ: &Type,
+    ) -> FunctionType<'a> {
+        let args: Vec<_> = args
+            .into_iter()
+            .map(|t| self.compile_typ(t).into())
+            .collect();
         let ret = self.compile_typ(typ);
         ret.fn_type(&args, false)
     }
 
     pub fn compile_fn(&self, func: &FuncDecl) {
-        let args: Vec<_> = func
-            .args
-            .iter()
-            .map(|arg| self.compile_typ(&arg.typ).into())
-            .collect();
-        let ret = //self.compile_typ(&func.ret_typ);
-        self.llvm.i64_type();
-        let fnt = ret.fn_type(&args, false);
         let function = self
             .module
             .get_function(&func.name)
@@ -117,9 +139,7 @@ impl<'a> Codegen<'a> {
 
         for (i, arg) in func.args.iter().enumerate() {
             let argument = function.get_nth_param(i as _).unwrap();
-            scope
-                .names
-                .insert(arg.var.clone(), Rc::new(argument.into()));
+            scope.names.insert(arg.var.clone(), Rc::new(argument));
         }
 
         for (name, fv) in self.functions.iter() {
@@ -137,20 +157,53 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    fn assign_to_pattern(&self, pat: &Pat, e: BasicValueEnum<'a>, scope: &mut Scope<'a>) {
+    fn assign_to_pattern(
+        &self,
+        pat: &Pat,
+        typ: &Type,
+        e: BasicValueEnum<'a>,
+        scope: &mut Scope<'a>,
+    ) -> Result<(), ()> {
         match pat {
             crate::ast::Pat::Single(v, _) => {
                 scope.names.insert(v.to_owned(), Rc::new(e));
+                Ok(())
             }
-            crate::ast::Pat::Tuple(pats, span) => todo!(),
+            crate::ast::Pat::Tuple(patterns, _) => {
+                let Type::Product(typs, _) = typ else {
+                    return Err(());
+                };
+                if patterns.len() != typs.len() {
+                    return Err(());
+                }
+                let typ = self.compile_typ_derefed(typ);
+                // let tuple = self.builder.build_alloca(typ, "").map_err(|_| ())?;
+
+                for (i, (pat, t)) in patterns.iter().zip(typs.iter()).enumerate() {
+                    let index = self
+                        .builder
+                        .build_struct_gep(typ, e.into_pointer_value(), i as u32, "")
+                        .map_err(|_| ())?;
+                    let pointee = self.compile_typ(t);
+                    let e = self
+                        .builder
+                        .build_load(pointee, index, "")
+                        .map_err(|_| ())?;
+                    self.assign_to_pattern(pat, t, e, scope)?;
+                }
+
+                Ok(())
+            }
         }
     }
 
     fn compile_statement(&self, stmt: &Statement, scope: &mut Scope<'a>) {
         match stmt {
-            Statement::Let { pattern, expr, .. } => {
+            Statement::Let {
+                pattern, expr, typ, ..
+            } => {
                 let e = self.compile_expr(expr, scope).unwrap();
-                self.assign_to_pattern(pattern, e, scope);
+                self.assign_to_pattern(pattern, typ, e, scope).unwrap();
             }
             Statement::Return { expr, .. } => {
                 let e = self.compile_expr(expr, scope).unwrap();
@@ -182,7 +235,22 @@ impl<'a> Codegen<'a> {
 
                 Ok(BasicValueEnum::IntValue(res))
             }
-            Expression::New { inner, .. } => todo!(),
+            Expression::New { inner, .. } => todo!("compile {inner}"),
+            Expression::Tuple { elems, typ, .. } => {
+                let elems = elems
+                    .iter()
+                    .map(|elem| self.compile_expr(elem, scope))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let typ = self.compile_typ_derefed(typ);
+                let tuple = self.builder.build_alloca(typ, "")?;
+
+                for (i, elem) in elems.into_iter().enumerate() {
+                    let index = self.builder.build_struct_gep(typ, tuple, i as u32, "")?;
+                    self.builder.build_store(index, elem)?;
+                }
+
+                Ok(tuple.into())
+            }
             Expression::Call { func, args, .. } => {
                 let ft = func.typ();
                 let func_type = ft.as_func().expect("calling a non-function");
@@ -218,8 +286,50 @@ impl<'a> Codegen<'a> {
             }
         }
     }
+}
 
-    pub(crate) fn print_to_stderr(&self) {
+pub struct Compiled<'a> {
+    module: Module<'a>,
+}
+
+impl<'a> Compiled<'a> {
+    fn new(module: Module<'a>) -> Self {
+        Self { module }
+    }
+
+    #[allow(dead_code)]
+    pub fn print_to_stderr(&self) {
         self.module.print_to_stderr();
+    }
+
+    #[allow(dead_code)]
+    pub fn print_to_file(&self, p: impl AsRef<Path>) -> Result<(), String> {
+        self.module.print_to_file(p).map_err(|e| e.to_string())
+    }
+
+    pub fn emit(&self, p: impl AsRef<Path>) -> Result<(), String> {
+        let default_triple = TargetMachine::get_default_triple();
+        Target::initialize_x86(&InitializationConfig::default());
+        let target = Target::from_triple(&default_triple).expect("could create target");
+        let cpu = TargetMachine::get_host_cpu_name();
+        let features = "";
+        let target_machine = target
+            .create_target_machine(
+                &default_triple,
+                cpu.to_str().expect("valid utf-8"),
+                features,
+                inkwell::OptimizationLevel::None,
+                inkwell::targets::RelocMode::Default,
+                inkwell::targets::CodeModel::Default,
+            )
+            .expect("could create target machine");
+
+        self.module
+            .set_data_layout(&target_machine.get_target_data().get_data_layout());
+        self.module.set_triple(&default_triple);
+
+        target_machine
+            .write_to_file(&self.module, inkwell::targets::FileType::Object, p.as_ref())
+            .map_err(|e| e.to_string())
     }
 }

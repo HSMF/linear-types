@@ -1,3 +1,6 @@
+use std::path::PathBuf;
+
+use clap::Parser as _;
 use codegen::Codegen;
 use inkwell::context::Context;
 use parse::Parser;
@@ -11,6 +14,7 @@ mod parse;
 mod span;
 mod tok;
 
+#[allow(dead_code)]
 fn print_tok(max_width: usize, tok: Token) {
     let start = tok.span().start.col;
     let end = tok.span().end.col;
@@ -22,6 +26,7 @@ fn print_tok(max_width: usize, tok: Token) {
     println!(" {:?}", tok.kind());
 }
 
+#[allow(dead_code)]
 fn visualize_tokens(s: &str) {
     let lex = Lexer::new(s);
 
@@ -44,55 +49,35 @@ fn visualize_tokens(s: &str) {
     }
 }
 
+#[derive(clap::Parser)]
+struct App {
+    file: PathBuf,
+}
+
 fn main() {
-    let src = r#"
-type x = (int, (int,x))
-type i = int
+    let app = App::parse();
+    let src = std::fs::read_to_string(app.file).expect("can read source");
+    // visualize_tokens(&src);
 
-fn f(x: int) -> int {
-    return 2 * x + 3;
-}
-
-fn main() -> int {
-    let x : int = 7 + 1 * f(1);
-    return x;
-}
-    "#;
-    visualize_tokens(src);
-
-    let mut parser = Parser::new(Lexer::new(src));
+    let mut parser = Parser::new(Lexer::new(&src));
     let prog = parser.program();
-    dbg!(&prog);
+    // dbg!(&prog);
 
     let prog = prog.expect("managed to parse");
-    println!("{prog}");
+    // println!("{prog}");
 
     let prog = infer_types::infer(prog).expect("was able to infer types");
 
     let ctx = Context::create();
-    Codegen::compile(&ctx, "hello_world", &prog);
-}
+    let compiled = Codegen::compile(&ctx, "hello_world", &prog);
 
-fn main2() {
-    let ctx = Context::create();
-    let module = ctx.create_module("mod");
-    let builder = ctx.create_builder();
-    let i64t = ctx.i64_type();
-    let fnt = i64t.fn_type(&[i64t.into(), i64t.into(), i64t.into()], false);
-    let function = module.add_function("sum", fnt, None);
-    let basic_block = ctx.append_basic_block(function, "entry");
-    builder.position_at_end(basic_block);
-    let x = function.get_nth_param(0).unwrap().into_int_value();
-    let y = function.get_nth_param(1).unwrap().into_int_value();
-    let z = function.get_nth_param(2).unwrap().into_int_value();
-
-    let sum = builder.build_int_add(x, y, "").unwrap();
-    let sum = builder.build_int_add(sum, z, "").unwrap();
-    let sum = builder.build_int_add(sum, z, "").unwrap();
-
-    builder.build_return(Some(&sum)).unwrap();
-
-    module.print_to_stderr();
+    compiled.emit("./target/foo.o").expect("could emit");
+    std::process::Command::new("clang")
+        .arg("./target/foo.o")
+        .arg("-o")
+        .arg("target/foo")
+        .output()
+        .expect("could run clang");
 }
 
 #[cfg(test)]

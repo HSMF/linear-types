@@ -1,4 +1,4 @@
-use std::cell::LazyCell;
+use std::rc::Rc;
 
 use crate::{
     ast::{
@@ -15,6 +15,7 @@ pub struct Parser<'a> {
 
 macro_rules! accept_data {
     ($accept:ident, $expect:ident, $t:ty, $pat:path) => {
+        #[allow(unused)]
         fn $accept(&mut self) -> Option<($t, Span)> {
             let tok = self.sym.take()?;
             let span = tok.span();
@@ -30,6 +31,7 @@ macro_rules! accept_data {
             }
         }
 
+        #[allow(unused)]
         fn $expect(&mut self) -> Option<($t, Span)> {
             if let Some(x) = self.$accept() {
                 return Some(x);
@@ -50,7 +52,7 @@ impl<'a> Parser<'a> {
         let sym_str = self
             .sym
             .as_ref()
-            .map(|x| format!("{:?}", x.kind()))
+            .map(|x| format!("{:?} at {:?}", x.kind(), x.span()))
             .unwrap_or_else(|| String::from("EOF"));
         println!("{s} current token is {}", sym_str);
     }
@@ -151,7 +153,7 @@ impl Parser<'_> {
         } else if let Some(tok) = self.accept(TokenKind::Ref) {
             let typ = self.typ()?;
             let span = tok.span().merge(typ.span());
-            Some(Type::Ref(Box::new(typ), span))
+            Some(Type::Ref(Rc::new(typ), span))
         } else if let Some(tok) = self.accept(TokenKind::OpenParen) {
             let typs = self.comma_sep_types()?;
             let end = self.expect(TokenKind::CloseParen)?;
@@ -293,10 +295,19 @@ impl Parser<'_> {
     }
 
     fn atom(&mut self) -> Option<Expression> {
-        let res = if self.accept(TokenKind::OpenParen).is_some() {
-            let e = self.expression()?;
-            self.expect(TokenKind::CloseParen)?;
-            Some(e)
+        let res = if let Some(open) = self.accept(TokenKind::OpenParen) {
+            let exprs = self.comma_sep_expr()?;
+            let close = self.expect(TokenKind::CloseParen)?;
+
+            if exprs.len() == 1 {
+                let mut exprs = exprs;
+                Some(exprs.pop().unwrap())
+            } else {
+                Some(Expression::Tuple {
+                    elems: exprs,
+                    span: open.span().merge(close.span()),
+                })
+            }
         } else if let Some((name, span)) = self.accept_ident() {
             Some(Expression::Var { name, span })
         } else if let Some((value, span)) = self.accept_int() {
