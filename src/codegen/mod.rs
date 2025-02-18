@@ -173,7 +173,6 @@ impl<'a> Codegen<'a> {
                     return Err(());
                 }
                 let typ = self.compile_typ_derefed(typ);
-                // let tuple = self.builder.build_alloca(typ, "").map_err(|_| ())?;
 
                 for (i, (pat, t)) in patterns.iter().zip(typs.iter()).enumerate() {
                     let index = self
@@ -238,7 +237,7 @@ impl<'a> Codegen<'a> {
                     .map(|elem| self.compile_expr(elem, scope))
                     .collect::<Result<Vec<_>, _>>()?;
                 let typ = self.compile_typ_derefed(typ);
-                let tuple = self.builder.build_alloca(typ, "")?;
+                let tuple = self.builder.build_malloc(typ, "")?;
 
                 for (i, elem) in elems.into_iter().enumerate() {
                     let index = self.builder.build_struct_gep(typ, tuple, i as u32, "")?;
