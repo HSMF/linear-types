@@ -9,6 +9,7 @@ use inkwell::{
     values::{BasicValue, BasicValueEnum, FunctionValue},
     AddressSpace, OptimizationLevel,
 };
+use thiserror::Error;
 
 use crate::{
     ast::{Pat, Type},
@@ -26,6 +27,33 @@ pub struct Codegen<'a> {
 #[derive(Debug, Default, Clone)]
 struct Scope<'a> {
     names: HashMap<String, Rc<BasicValueEnum<'a>>>,
+}
+
+pub type Result<T> = std::result::Result<T, CompileError>;
+#[derive(Debug, PartialEq, Eq, Error)]
+pub enum CompileError {
+    #[error("{0}")]
+    BuilderError(BuilderError),
+    #[error("{0}")]
+    Msg(String),
+}
+
+impl From<BuilderError> for CompileError {
+    fn from(value: BuilderError) -> Self {
+        Self::BuilderError(value)
+    }
+}
+
+impl From<String> for CompileError {
+    fn from(value: String) -> Self {
+        Self::Msg(value)
+    }
+}
+
+impl From<&str> for CompileError {
+    fn from(value: &str) -> Self {
+        Self::Msg(value.to_owned())
+    }
 }
 
 impl<'a> Codegen<'a> {
@@ -159,7 +187,7 @@ impl<'a> Codegen<'a> {
         typ: &Type,
         e: BasicValueEnum<'a>,
         scope: &mut Scope<'a>,
-    ) -> Result<(), ()> {
+    ) -> Result<()> {
         match pat {
             crate::ast::Pat::Single(v, _) => {
                 scope.names.insert(v.to_owned(), Rc::new(e));
@@ -167,25 +195,25 @@ impl<'a> Codegen<'a> {
             }
             crate::ast::Pat::Tuple(patterns, _) => {
                 let Type::Product(typs, _) = typ else {
-                    return Err(());
+                    return Err("not a product type".into());
                 };
                 if patterns.len() != typs.len() {
-                    return Err(());
+                    return Err("lengths mismatch".into());
                 }
                 let typ = self.compile_typ_derefed(typ);
+                let e = e.into_pointer_value();
 
                 for (i, (pat, t)) in patterns.iter().zip(typs.iter()).enumerate() {
-                    let index = self
-                        .builder
-                        .build_struct_gep(typ, e.into_pointer_value(), i as u32, "")
-                        .map_err(|_| ())?;
+                    let index = self.builder.build_struct_gep(typ, e, i as u32, "")?;
                     let pointee = self.compile_typ(t);
-                    let e = self
-                        .builder
-                        .build_load(pointee, index, "")
-                        .map_err(|_| ())?;
+                    let e = self.builder.build_load(pointee, index, "")?;
                     self.assign_to_pattern(pat, t, e, scope)?;
                 }
+
+                // is it safe to free here?
+                // we could have tuples be non-duplicable types => i.e. it is safe to free here
+                // (because we destructed the only tuple)
+                // self.builder.build_free(e)?;
 
                 Ok(())
             }
@@ -207,11 +235,7 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    fn compile_expr(
-        &self,
-        expr: &Expression,
-        scope: &Scope<'a>,
-    ) -> Result<BasicValueEnum<'a>, BuilderError> {
+    fn compile_expr(&self, expr: &Expression, scope: &Scope<'a>) -> Result<BasicValueEnum<'a>> {
         match expr {
             Expression::Binop {
                 left, right, op, ..
@@ -235,7 +259,7 @@ impl<'a> Codegen<'a> {
                 let elems = elems
                     .iter()
                     .map(|elem| self.compile_expr(elem, scope))
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .collect::<Result<Vec<_>>>()?;
                 let typ = self.compile_typ_derefed(typ);
                 let tuple = self.builder.build_malloc(typ, "")?;
 
@@ -252,7 +276,7 @@ impl<'a> Codegen<'a> {
                 let func_type = self.compile_func_typ(func_type.0, func_type.1);
 
                 let func = self.compile_expr(func, scope)?;
-                let args: Result<Vec<_>, _> = args
+                let args: Result<Vec<_>> = args
                     .iter()
                     .map(|arg| self.compile_expr(arg, scope).map(|x| x.into()))
                     .collect();
@@ -312,11 +336,11 @@ impl<'a> Compiled<'a> {
     }
 
     #[allow(dead_code)]
-    pub fn print_to_file(&self, p: impl AsRef<Path>) -> Result<(), String> {
+    pub fn print_to_file(&self, p: impl AsRef<Path>) -> std::result::Result<(), String> {
         self.module.print_to_file(p).map_err(|e| e.to_string())
     }
 
-    pub fn emit(&self, p: impl AsRef<Path>) -> Result<(), String> {
+    pub fn emit(&self, p: impl AsRef<Path>) -> std::result::Result<(), String> {
         let default_triple = TargetMachine::get_default_triple();
         Target::initialize_x86(&InitializationConfig::default());
         let target = Target::from_triple(&default_triple).expect("could create target");
