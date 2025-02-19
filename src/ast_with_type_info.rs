@@ -84,6 +84,11 @@ pub enum Expression {
         span: Span,
         typ: Rc<Type>,
     },
+    Bool {
+        value: bool,
+        span: Span,
+        typ: Rc<Type>,
+    },
 }
 
 impl Expression {
@@ -120,10 +125,8 @@ impl Expression {
                 name: name.to_owned(),
                 span: *span,
             },
-            Expression::Int { value, span, .. } => ast::Expression::Int {
-                value: *value,
-                span: *span,
-            },
+            &Expression::Int { value, span, .. } => ast::Expression::Int { value, span },
+            &Expression::Bool { value, span, .. } => ast::Expression::Bool { value, span },
         }
     }
 }
@@ -183,7 +186,8 @@ impl Expression {
             | Expression::Call { typ, .. }
             | Expression::Tuple { typ, .. }
             | Expression::Var { typ, .. }
-            | Expression::Int { typ, .. } => Rc::clone(typ),
+            | Expression::Int { typ, .. }
+            | Expression::Bool { typ, .. } => Rc::clone(typ),
         }
     }
 }

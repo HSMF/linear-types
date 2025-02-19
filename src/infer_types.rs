@@ -125,6 +125,10 @@ fn int() -> Rc<Type> {
     Rc::new(Type::Var(String::from("int"), Span::empty()))
 }
 
+fn boolean() -> Rc<Type> {
+    Rc::new(Type::Var(String::from("bool"), Span::empty()))
+}
+
 fn infer_type_of_expr(e: ast::Expression, ctx: &Ctx) -> Result<(Rc<Type>, Expression)> {
     match e {
         ast::Expression::Binop {
@@ -198,6 +202,14 @@ fn infer_type_of_expr(e: ast::Expression, ctx: &Ctx) -> Result<(Rc<Type>, Expres
                 value,
                 span,
                 typ: int(),
+            },
+        )),
+        ast::Expression::Bool { value, span } => Ok((
+            boolean(),
+            Expression::Bool {
+                value,
+                span,
+                typ: boolean(),
             },
         )),
     }

@@ -100,6 +100,7 @@ impl<'a> Codegen<'a> {
         match typ {
             Type::Var(name, _span) => match name.as_str() {
                 "int" => llvm.i64_type().into(),
+                "bool" => llvm.bool_type().into(),
                 _ => todo!("compile type variable {name}"),
             },
             _ => llvm.ptr_type(AddressSpace::default()).into(),
@@ -338,6 +339,11 @@ impl<'a> Codegen<'a> {
                 let i64_type = self.llvm.i64_type();
                 let i64_val = i64_type.const_int(*value as u64, false);
                 Ok(BasicValueEnum::IntValue(i64_val))
+            }
+            Expression::Bool { value, .. } => {
+                let i1_type = self.llvm.bool_type();
+                let val = i1_type.const_int(*value as u64, false);
+                Ok(BasicValueEnum::IntValue(val))
             }
         }
     }

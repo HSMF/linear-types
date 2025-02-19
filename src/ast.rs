@@ -235,6 +235,7 @@ impl Expression {
             }
             Expression::Var { name, .. } => write!(f, "{name}"),
             Expression::Int { value, .. } => write!(f, "{value}"),
+            Expression::Bool { value, .. } => write!(f, "{value}"),
         }
     }
 }
