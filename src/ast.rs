@@ -61,12 +61,14 @@ pub struct Arg {
     pub span: Span,
 }
 
+pub type Block = Vec<Statement>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FuncDecl {
     pub name: String,
     pub args: Vec<Arg>,
     pub ret_typ: Type,
-    pub body: Vec<Statement>,
+    pub body: Block,
     pub span: Span,
 }
 
@@ -96,12 +98,20 @@ pub enum Statement {
         expr: Expression,
         span: Span,
     },
+    IfElse {
+        cond: Expression,
+        then: Block,
+        otherwise: Block,
+        span: Span,
+    },
 }
 
 impl Spanned for Statement {
     fn span(&self) -> Span {
         match self {
-            Statement::Let { span, .. } | Statement::Return { span, .. } => *span,
+            Statement::Let { span, .. }
+            | Statement::Return { span, .. }
+            | Statement::IfElse { span, .. } => *span,
         }
     }
 }
@@ -143,6 +153,10 @@ pub enum Expression {
         value: i64,
         span: Span,
     },
+    Bool {
+        value: bool,
+        span: Span,
+    },
 }
 
 impl Spanned for Expression {
@@ -153,7 +167,8 @@ impl Spanned for Expression {
             | Expression::Call { span, .. }
             | Expression::Tuple { span, .. }
             | Expression::Int { span, .. }
-            | Expression::Var { span, .. } => *span,
+            | Expression::Var { span, .. }
+            | Expression::Bool { span, .. } => *span,
         }
     }
 }
@@ -257,6 +272,25 @@ impl Statement {
                 write!(f, "let {pattern}: {typ} = {expr};")?;
                 Ok(())
             }
+            Statement::IfElse {
+                cond,
+                then,
+                otherwise,
+                ..
+            } => {
+                writeln!(f, "if {cond} ")?;
+                display_block(f, indent, then)?;
+                for _ in 0..indent {
+                    write!(f, "    ")?;
+                }
+                writeln!(f, "else ")?;
+                display_block(f, indent, otherwise)?;
+                for _ in 0..indent {
+                    write!(f, "    ")?;
+                }
+                writeln!(f)?;
+                Ok(())
+            }
             Statement::Return { expr, .. } => write!(f, "return {expr};"),
         }
     }
@@ -337,6 +371,16 @@ impl Display for TypeDecl {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "type {} = {}", self.name, self.typ)
     }
+}
+
+fn display_block(f: &mut Formatter<'_>, indent: u32, block: &Block) -> Result {
+    writeln!(f, "{{")?;
+    for st in block {
+        st.display(f, indent + 1)?;
+        writeln!(f)?;
+    }
+    write!(f, "}}")?;
+    Ok(())
 }
 
 impl Display for FuncDecl {

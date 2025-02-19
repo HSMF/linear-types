@@ -19,6 +19,10 @@ impl Token {
             "let" => TokenKind::Let,
             "new" => TokenKind::New,
             "return" => TokenKind::Return,
+            "if" => TokenKind::If,
+            "else" => TokenKind::Else,
+            "true" => TokenKind::True,
+            "false" => TokenKind::False,
             "=" => TokenKind::Eq,
             "," => TokenKind::Comma,
             ":" => TokenKind::Colon,
@@ -76,7 +80,11 @@ pub enum TokenKind {
     Times,
     Div,
     New,
+    If,
+    Else,
     Return,
+    False,
+    True,
 }
 
 impl TokenKind {

@@ -13,6 +13,38 @@ pub struct Parser<'a> {
     sym: Option<Token>,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, thiserror::Error)]
+pub enum ParseErrorKind {
+    #[error("{0}")]
+    Msg(String),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, thiserror::Error)]
+pub struct ParseError {
+    cur_sym: Option<Token>,
+    kind: ParseErrorKind,
+}
+
+pub type Result<T> = std::result::Result<T, ParseError>;
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(span) = self.cur_sym.as_ref().map(|x| x.span()) {
+            write!(f, "{span}: ")?;
+        }
+
+        write!(f, "{} ", self.kind)?;
+
+        if let Some(cur_sym) = &self.cur_sym {
+            write!(f, "current token is {:?}", cur_sym.kind())?;
+        } else {
+            write!(f, "current token is EOF")?;
+        }
+
+        Ok(())
+    }
+}
+
 macro_rules! accept_data {
     ($accept:ident, $expect:ident, $t:ty, $pat:path) => {
         #[allow(unused)]
@@ -32,12 +64,11 @@ macro_rules! accept_data {
         }
 
         #[allow(unused)]
-        fn $expect(&mut self) -> Option<($t, Span)> {
+        fn $expect(&mut self) -> Result<($t, Span)> {
             if let Some(x) = self.$accept() {
-                return Some(x);
+                return Ok(x);
             }
-            self.error("expect: unexpected symbol");
-            None
+            Err(self.error("expect: unexpected symbol"))
         }
     };
 }
@@ -48,13 +79,17 @@ impl<'a> Parser<'a> {
         Self { lex, sym }
     }
 
-    fn error(&self, s: &str) {
+    fn error(&self, s: &str) -> ParseError {
         let sym_str = self
             .sym
             .as_ref()
             .map(|x| format!("{:?} at {:?}", x.kind(), x.span()))
             .unwrap_or_else(|| String::from("EOF"));
         println!("{s} current token is {}", sym_str);
+        ParseError {
+            cur_sym: self.sym.clone(),
+            kind: ParseErrorKind::Msg(s.to_owned()),
+        }
     }
 
     fn advance(&mut self) {
@@ -79,13 +114,12 @@ impl<'a> Parser<'a> {
     accept_data!(accept_ident, expect_ident, String, TokenKind::Ident);
     accept_data!(accept_int, expect_int, i64, TokenKind::Int);
 
-    fn expect(&mut self, s: TokenKind) -> Option<Token> {
+    fn expect(&mut self, s: TokenKind) -> Result<Token> {
         let k = s.clone();
         if let Some(tok) = self.accept(s) {
-            Some(tok)
+            Ok(tok)
         } else {
-            self.error(&format!("expect: expected {k:?}"));
-            None
+            Err(self.error(&format!("expect: expected {k:?}")))
         }
     }
 
@@ -115,10 +149,10 @@ impl Parser<'_> {
 
 macro_rules! comma_sep {
     ($name:ident, $single:ident, $after:expr, $t:ty) => {
-        fn $name(&mut self) -> Option<Vec<$t>> {
+        fn $name(&mut self) -> Result<Vec<$t>> {
             let after = $after;
             if after(self) {
-                return Some(vec![]);
+                return Ok(vec![]);
             }
 
             let first = self.$single()?;
@@ -130,38 +164,37 @@ macro_rules! comma_sep {
                 let t = self.$single()?;
                 res.push(t);
             }
-            Some(res)
+            Ok(res)
         }
     };
 }
 
 impl Parser<'_> {
-    fn type_decl(&mut self, start: Span) -> Option<TypeDecl> {
+    fn type_decl(&mut self, start: Span) -> Result<TypeDecl> {
         let (name, _) = self.expect_ident()?;
         self.expect(TokenKind::Eq)?;
         let typ = self.typ()?;
-        Some(TypeDecl {
+        Ok(TypeDecl {
             span: start.merge(typ.span()),
             name,
             typ,
         })
     }
 
-    fn typ(&mut self) -> Option<Type> {
+    fn typ(&mut self) -> Result<Type> {
         if let Some((var, span)) = self.accept_ident() {
-            Some(Type::Var(var, span))
+            Ok(Type::Var(var, span))
         } else if let Some(tok) = self.accept(TokenKind::Ref) {
             let typ = self.typ()?;
             let span = tok.span().merge(typ.span());
-            Some(Type::Ref(Rc::new(typ), span))
+            Ok(Type::Ref(Rc::new(typ), span))
         } else if let Some(tok) = self.accept(TokenKind::OpenParen) {
             let typs = self.comma_sep_types()?;
             let end = self.expect(TokenKind::CloseParen)?;
             let span = tok.span().merge(end.span());
-            Some(Type::Product(typs, span))
+            Ok(Type::Product(typs, span))
         } else {
-            self.error("type: expected VAR, '(', 'ref'");
-            None
+            Err(self.error("type: expected VAR, '(', 'ref'"))
         }
     }
 
@@ -175,15 +208,15 @@ impl Parser<'_> {
         Expression
     );
 
-    fn arg(&mut self) -> Option<Arg> {
+    fn arg(&mut self) -> Result<Arg> {
         let (var, span) = self.expect_ident()?;
         self.expect(TokenKind::Colon)?;
         let typ = self.typ()?;
         let span = span.merge(typ.span());
-        Some(Arg { var, typ, span })
+        Ok(Arg { var, typ, span })
     }
 
-    fn fn_decl(&mut self, start: Span) -> Option<FuncDecl> {
+    fn fn_decl(&mut self, start: Span) -> Result<FuncDecl> {
         let (name, _) = self.expect_ident()?;
         self.expect(TokenKind::OpenParen)?;
         let args = self.comma_sep_args()?;
@@ -191,7 +224,7 @@ impl Parser<'_> {
         self.expect(TokenKind::Arrow)?;
         let ret_typ = self.typ()?;
         let (body, body_span) = self.block()?;
-        Some(FuncDecl {
+        Ok(FuncDecl {
             name,
             args,
             ret_typ,
@@ -200,7 +233,7 @@ impl Parser<'_> {
         })
     }
 
-    fn block(&mut self) -> Option<(Vec<Statement>, Span)> {
+    fn block(&mut self) -> Result<(Vec<Statement>, Span)> {
         let open = self.expect(TokenKind::OpenBrace)?;
         let mut statements = vec![];
         while !self.peek_close_brace() {
@@ -208,23 +241,22 @@ impl Parser<'_> {
             statements.push(stmt);
         }
         let close = self.expect(TokenKind::CloseBrace)?;
-        Some((statements, open.span().merge(close.span())))
+        Ok((statements, open.span().merge(close.span())))
     }
 
-    fn pattern(&mut self) -> Option<Pat> {
+    fn pattern(&mut self) -> Result<Pat> {
         if let Some((id, span)) = self.accept_ident() {
-            Some(Pat::Single(id, span))
+            Ok(Pat::Single(id, span))
         } else if let Some(open) = self.accept(TokenKind::OpenParen) {
             let patterns = self.comma_sep_pat()?;
             let close = self.expect(TokenKind::CloseParen)?;
-            Some(Pat::Tuple(patterns, open.span().merge(close.span())))
+            Ok(Pat::Tuple(patterns, open.span().merge(close.span())))
         } else {
-            self.error("pattern: syntax error");
-            None
+            Err(self.error("pattern: syntax error"))
         }
     }
 
-    fn statement(&mut self) -> Option<Statement> {
+    fn statement(&mut self) -> Result<Statement> {
         if let Some(let_tok) = self.accept(TokenKind::Let) {
             let pattern = self.pattern()?;
             self.expect(TokenKind::Colon)?;
@@ -232,7 +264,7 @@ impl Parser<'_> {
             self.expect(TokenKind::Eq)?;
             let expr = self.expression()?;
             let semi = self.expect(TokenKind::Semicolon)?;
-            Some(Statement::Let {
+            Ok(Statement::Let {
                 pattern,
                 expr,
                 typ,
@@ -242,17 +274,27 @@ impl Parser<'_> {
             let expr = self.expression()?;
             let semi = self.expect(TokenKind::Semicolon)?;
 
-            Some(Statement::Return {
+            Ok(Statement::Return {
                 expr,
                 span: ret.span().merge(semi.span()),
             })
+        } else if let Some(if_tok) = self.accept(TokenKind::If) {
+            let condition = self.expression()?;
+            let (then, _) = self.block()?;
+            self.expect(TokenKind::Else)?;
+            let (otherwise, span) = self.block()?;
+            Ok(Statement::IfElse {
+                cond: condition,
+                then,
+                otherwise,
+                span: if_tok.span().merge(span),
+            })
         } else {
-            self.error("statement: syntax error");
-            None
+            Err(self.error("statement: syntax error"))
         }
     }
 
-    fn expression(&mut self) -> Option<Expression> {
+    fn expression(&mut self) -> Result<Expression> {
         let mut e = self.term()?;
         loop {
             let opcode = if self.accept(TokenKind::Plus).is_some() {
@@ -270,10 +312,10 @@ impl Parser<'_> {
                 op: opcode,
             }
         }
-        Some(e)
+        Ok(e)
     }
 
-    fn term(&mut self) -> Option<Expression> {
+    fn term(&mut self) -> Result<Expression> {
         let mut e = self.atom()?;
         loop {
             let opcode = if self.accept(TokenKind::Times).is_some() {
@@ -291,52 +333,61 @@ impl Parser<'_> {
                 op: opcode,
             }
         }
-        Some(e)
+        Ok(e)
     }
 
-    fn atom(&mut self) -> Option<Expression> {
+    fn atom(&mut self) -> Result<Expression> {
         let res = if let Some(open) = self.accept(TokenKind::OpenParen) {
             let exprs = self.comma_sep_expr()?;
             let close = self.expect(TokenKind::CloseParen)?;
 
             if exprs.len() == 1 {
                 let mut exprs = exprs;
-                Some(exprs.pop().unwrap())
+                exprs.pop().unwrap()
             } else {
-                Some(Expression::Tuple {
+                Expression::Tuple {
                     elems: exprs,
                     span: open.span().merge(close.span()),
-                })
+                }
             }
         } else if let Some((name, span)) = self.accept_ident() {
-            Some(Expression::Var { name, span })
+            Expression::Var { name, span }
         } else if let Some((value, span)) = self.accept_int() {
-            Some(Expression::Int { value, span })
-        } else if let Some(new) = self.expect(TokenKind::New) {
+            Expression::Int { value, span }
+        } else if let Some(t) = self.accept(TokenKind::True) {
+            Expression::Bool {
+                value: true,
+                span: t.span(),
+            }
+        } else if let Some(t) = self.accept(TokenKind::False) {
+            Expression::Bool {
+                value: false,
+                span: t.span(),
+            }
+        } else if let Some(new) = self.accept(TokenKind::New) {
             let e = self.expression()?;
-            Some(Expression::New {
+            Expression::New {
                 span: new.span().merge(e.span()),
                 inner: Box::new(e),
-            })
+            }
         } else {
-            self.error("expression: unexpected char");
-            None
-        }?;
+            return Err(self.error("expression: expected one of [OpenParen, Ident, Int, New, If]"));
+        };
 
         if self.accept(TokenKind::OpenParen).is_some() {
             let args = self.comma_sep_expr()?;
             let end = self.expect(TokenKind::CloseParen)?;
-            Some(Expression::Call {
+            Ok(Expression::Call {
                 span: res.span().merge(end.span()),
                 func: Box::new(res),
                 args,
             })
         } else {
-            Some(res)
+            Ok(res)
         }
     }
 
-    pub fn program(&mut self) -> Option<Program> {
+    pub fn program(&mut self) -> Result<Program> {
         let mut items = vec![];
         loop {
             if let Some(t0) = self.accept(TokenKind::Type) {
@@ -348,11 +399,10 @@ impl Parser<'_> {
             } else if self.expect_eof() {
                 break;
             } else {
-                self.error("program: syntax error");
-                return None;
+                return Err(self.error("program: syntax error"));
             }
         }
 
-        Some(Program(items))
+        Ok(Program(items))
     }
 }

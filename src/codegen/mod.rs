@@ -24,24 +24,19 @@ pub struct Codegen<'a> {
     functions: HashMap<String, Rc<FunctionValue<'a>>>,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 struct Scope<'a> {
     names: HashMap<String, Rc<BasicValueEnum<'a>>>,
+    function: FunctionValue<'a>,
 }
 
 pub type Result<T> = std::result::Result<T, CompileError>;
 #[derive(Debug, PartialEq, Eq, Error)]
 pub enum CompileError {
     #[error("{0}")]
-    BuilderError(BuilderError),
+    BuilderError(#[from] BuilderError),
     #[error("{0}")]
     Msg(String),
-}
-
-impl From<BuilderError> for CompileError {
-    fn from(value: BuilderError) -> Self {
-        Self::BuilderError(value)
-    }
 }
 
 impl From<String> for CompileError {
@@ -159,7 +154,10 @@ impl<'a> Codegen<'a> {
         let basic_block = self.llvm.append_basic_block(function, "entry");
         self.builder.position_at_end(basic_block);
 
-        let mut scope = Scope::default();
+        let mut scope = Scope {
+            names: HashMap::new(),
+            function,
+        };
 
         for (i, arg) in func.args.iter().enumerate() {
             let argument = function.get_nth_param(i as _).unwrap();
@@ -171,14 +169,17 @@ impl<'a> Codegen<'a> {
             scope.names.insert(name.to_owned(), Rc::new(fv));
         }
 
-        self.compile_block(&func.body, &scope);
+        self.compile_block(&func.body, &scope).unwrap();
     }
 
-    fn compile_block(&self, block: &[Statement], scope: &Scope<'a>) {
+    fn compile_block(&self, block: &[Statement], scope: &Scope<'a>) -> Result<bool> {
         let mut scope = scope.clone();
         for stmt in block {
-            self.compile_statement(stmt, &mut scope);
+            if self.compile_statement(stmt, &mut scope)? {
+                return Ok(true);
+            }
         }
+        Ok(false)
     }
 
     fn assign_to_pattern(
@@ -220,17 +221,52 @@ impl<'a> Codegen<'a> {
         }
     }
 
-    fn compile_statement(&self, stmt: &Statement, scope: &mut Scope<'a>) {
+    fn compile_statement(&self, stmt: &Statement, scope: &mut Scope<'a>) -> Result<bool> {
         match stmt {
             Statement::Let {
                 pattern, expr, typ, ..
             } => {
-                let e = self.compile_expr(expr, scope).unwrap();
-                self.assign_to_pattern(pattern, typ, e, scope).unwrap();
+                let e = self.compile_expr(expr, scope)?;
+                self.assign_to_pattern(pattern, typ, e, scope)?;
+                Ok(false)
             }
             Statement::Return { expr, .. } => {
-                let e = self.compile_expr(expr, scope).unwrap();
-                self.builder.build_return(Some(&e)).unwrap();
+                let e = self.compile_expr(expr, scope)?;
+                self.builder.build_return(Some(&e))?;
+                Ok(true)
+            }
+            Statement::IfElse {
+                cond,
+                then,
+                otherwise,
+                ..
+            } => {
+                let then_block = self.llvm.append_basic_block(scope.function, "");
+                let otherwise_block = self.llvm.append_basic_block(scope.function, "");
+                let after_block = self.llvm.append_basic_block(scope.function, "");
+
+                let cond = self.compile_expr(cond, scope).unwrap();
+                self.builder.build_conditional_branch(
+                    cond.into_int_value(),
+                    then_block,
+                    otherwise_block,
+                )?;
+
+                self.builder.position_at_end(then_block);
+                let diverges_then = self.compile_block(then, scope)?;
+                if !diverges_then {
+                    self.builder.build_unconditional_branch(after_block)?;
+                }
+
+                self.builder.position_at_end(otherwise_block);
+                let diverges_else = self.compile_block(otherwise, scope)?;
+                if !diverges_else {
+                    self.builder.build_unconditional_branch(after_block)?;
+                }
+
+                self.builder.position_at_end(after_block);
+
+                Ok(diverges_else && diverges_then)
             }
         }
     }

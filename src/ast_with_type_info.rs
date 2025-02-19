@@ -17,12 +17,14 @@ pub enum Item {
     Func(FuncDecl),
 }
 
+pub type Block = Vec<Statement>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FuncDecl {
     pub name: String,
     pub args: Vec<Arg>,
     pub ret_typ: Type,
-    pub body: Vec<Statement>,
+    pub body: Block,
     pub span: Span,
 }
 
@@ -37,6 +39,12 @@ pub enum Statement {
     Return {
         expr: Expression,
         typ: Rc<Type>,
+        span: Span,
+    },
+    IfElse {
+        cond: Expression,
+        then: Block,
+        otherwise: Block,
         span: Span,
     },
 }
@@ -136,6 +144,18 @@ impl Statement {
             },
             Statement::Return { expr, span, .. } => ast::Statement::Return {
                 expr: expr.as_source(),
+                span: *span,
+            },
+            Statement::IfElse {
+                cond,
+                then,
+                otherwise,
+                span,
+                ..
+            } => ast::Statement::IfElse {
+                cond: cond.as_source(),
+                then: then.iter().map(|x| x.as_source()).collect(),
+                otherwise: otherwise.iter().map(|x| x.as_source()).collect(),
                 span: *span,
             },
         }
