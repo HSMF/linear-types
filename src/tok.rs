@@ -24,6 +24,7 @@ impl Token {
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             "=" => TokenKind::Eq,
+            "<>" => TokenKind::Neq,
             "," => TokenKind::Comma,
             ":" => TokenKind::Colon,
             ";" => TokenKind::Semicolon,
@@ -67,6 +68,7 @@ pub enum TokenKind {
     Type,
     Let,
     Eq,
+    Neq,
     Comma,
     Colon,
     Arrow,
@@ -201,6 +203,14 @@ impl Iterator for Lexer<'_> {
                 }
                 let s = self.split_at(1);
                 return Some(Token::new_from_str(start, s));
+            }
+
+            '<' => {
+                let after = self.s[1..].chars().next();
+                if after == Some('>') {
+                    let s = self.split_at(2);
+                    return Some(Token::new_from_str(start, s));
+                }
             }
 
             '=' | '{' | '}' | '(' | ')' | ',' | ':' | ';' | '+' | '*' | '/' => {

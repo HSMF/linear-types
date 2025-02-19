@@ -249,8 +249,8 @@ impl<'a> Codegen<'a> {
                 let cond = self.compile_expr(cond, scope).unwrap();
                 self.builder.build_conditional_branch(
                     cond.into_int_value(),
-                    then_block,
                     otherwise_block,
+                    then_block,
                 )?;
 
                 self.builder.position_at_end(then_block);
@@ -287,6 +287,18 @@ impl<'a> Codegen<'a> {
                     crate::ast::OpCode::Div => {
                         self.builder.build_int_signed_div(left, right, "")?
                     }
+                    crate::ast::OpCode::Eq => self.builder.build_int_compare(
+                        inkwell::IntPredicate::EQ,
+                        left,
+                        right,
+                        "",
+                    )?,
+                    crate::ast::OpCode::Neq => self.builder.build_int_compare(
+                        inkwell::IntPredicate::EQ,
+                        left,
+                        right,
+                        "",
+                    )?,
                 };
 
                 Ok(BasicValueEnum::IntValue(res))

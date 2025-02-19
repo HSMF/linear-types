@@ -122,6 +122,8 @@ pub enum OpCode {
     Sub,
     Mul,
     Div,
+    Eq,
+    Neq,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -201,6 +203,7 @@ impl Expression {
                 let prec = match op {
                     OpCode::Add | OpCode::Sub => 0,
                     OpCode::Mul | OpCode::Div => 1,
+                    OpCode::Eq | OpCode::Neq => -1,
                 };
                 left.display(f, prec)?;
                 match op {
@@ -208,6 +211,8 @@ impl Expression {
                     OpCode::Sub => write!(f, " - ")?,
                     OpCode::Mul => write!(f, " * ")?,
                     OpCode::Div => write!(f, " / ")?,
+                    OpCode::Eq => write!(f, " = ")?,
+                    OpCode::Neq => write!(f, " <> ")?,
                 }
                 right.display(f, prec)?;
                 write!(f, ")")?;

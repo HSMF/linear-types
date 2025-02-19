@@ -295,6 +295,33 @@ impl Parser<'_> {
     }
 
     fn expression(&mut self) -> Result<Expression> {
+        self.comparison()
+    }
+
+    fn comparison(&mut self) -> Result<Expression> {
+        let left = self.sum()?;
+        if self.accept(TokenKind::Eq).is_some() {
+            let right = self.sum()?;
+            Ok(Expression::Binop {
+                span: left.span().merge(right.span()),
+                left: Box::new(left),
+                right: Box::new(right),
+                op: OpCode::Eq,
+            })
+        } else if self.accept(TokenKind::Neq).is_some() {
+            let right = Box::new(self.sum()?);
+            Ok(Expression::Binop {
+                span: left.span().merge(right.span()),
+                left: Box::new(left),
+                right,
+                op: OpCode::Neq,
+            })
+        } else {
+            Ok(left)
+        }
+    }
+
+    fn sum(&mut self) -> Result<Expression> {
         let mut e = self.term()?;
         loop {
             let opcode = if self.accept(TokenKind::Plus).is_some() {

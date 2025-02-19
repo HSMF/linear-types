@@ -1,5 +1,5 @@
-fn main() -> int {
-    if true {
+fn main(argc: int) -> int {
+    if argc = 3 {
         return 7;
     } else {
         return 4;
