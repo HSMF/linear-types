@@ -30,10 +30,10 @@ impl Ctx {
     fn type_doesnt_contain_var(t: &Type, v: &str) -> Option<Span> {
         match t {
             Type::Var(var, span) => (var == v).then_some(*span),
-            Type::Ref(inner, ..) => Ctx::type_doesnt_contain_var(&*inner, v),
+            Type::Ref(inner, ..) => Ctx::type_doesnt_contain_var(inner, v),
             Type::Product(items, ..) => {
                 for item in items {
-                    if let Some(x) = Ctx::type_doesnt_contain_var(&*item, v) {
+                    if let Some(x) = Ctx::type_doesnt_contain_var(item, v) {
                         return Some(x);
                     }
                 }
@@ -41,11 +41,11 @@ impl Ctx {
             }
             Type::Fun(items, res, ..) => {
                 for item in items {
-                    if let Some(x) = Ctx::type_doesnt_contain_var(&*item, v) {
+                    if let Some(x) = Ctx::type_doesnt_contain_var(item, v) {
                         return Some(x);
                     }
                 }
-                Ctx::type_doesnt_contain_var(&*res, v)
+                Ctx::type_doesnt_contain_var(res, v)
             }
         }
     }
@@ -54,13 +54,14 @@ impl Ctx {
     fn normalize_type(&self, t: Rc<Type>) -> Result<Rc<Type>> {
         match &*t {
             Type::Var(v, ..) if v == "int" => Ok(t),
+            Type::Var(v, ..) if v == "bool" => Ok(t),
             Type::Var(v, span) => {
                 let var = self
                     .type_variables
                     .get(v)
                     .ok_or_else(|| TypeError::msg(format!("{v} not found"), *span))?;
 
-                if let Some(span) = Ctx::type_doesnt_contain_var(&*var, &v) {
+                if let Some(span) = Ctx::type_doesnt_contain_var(var, v) {
                     return Err(TypeError::msg(
                         format!("type variable {v} occurs recursively"),
                         span,
@@ -122,6 +123,10 @@ impl TypeError {
 
 fn int() -> Rc<Type> {
     Rc::new(Type::Var(String::from("int"), Span::empty()))
+}
+
+fn boolean() -> Rc<Type> {
+    Rc::new(Type::Var(String::from("bool"), Span::empty()))
 }
 
 fn infer_type_of_expr(e: ast::Expression, ctx: &Ctx) -> Result<(Rc<Type>, Expression)> {
@@ -197,6 +202,14 @@ fn infer_type_of_expr(e: ast::Expression, ctx: &Ctx) -> Result<(Rc<Type>, Expres
                 value,
                 span,
                 typ: int(),
+            },
+        )),
+        ast::Expression::Bool { value, span } => Ok((
+            boolean(),
+            Expression::Bool {
+                value,
+                span,
+                typ: boolean(),
             },
         )),
     }
@@ -339,6 +352,22 @@ fn infer_statement(stmt: ast::Statement, ctx: &mut Ctx) -> Result<Statement> {
         ast::Statement::Return { expr, span } => {
             let (typ, expr) = infer_type_of_expr(expr, ctx)?;
             Ok(Statement::Return { expr, typ, span })
+        }
+        ast::Statement::IfElse {
+            cond,
+            then,
+            otherwise,
+            span,
+        } => {
+            let (_, cond) = infer_type_of_expr(cond, ctx)?;
+            let then = infer_block(then, ctx)?;
+            let otherwise = infer_block(otherwise, ctx)?;
+            Ok(Statement::IfElse {
+                cond,
+                then,
+                otherwise,
+                span,
+            })
         }
     }
 }

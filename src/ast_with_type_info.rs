@@ -17,12 +17,14 @@ pub enum Item {
     Func(FuncDecl),
 }
 
+pub type Block = Vec<Statement>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FuncDecl {
     pub name: String,
     pub args: Vec<Arg>,
     pub ret_typ: Type,
-    pub body: Vec<Statement>,
+    pub body: Block,
     pub span: Span,
 }
 
@@ -37,6 +39,12 @@ pub enum Statement {
     Return {
         expr: Expression,
         typ: Rc<Type>,
+        span: Span,
+    },
+    IfElse {
+        cond: Expression,
+        then: Block,
+        otherwise: Block,
         span: Span,
     },
 }
@@ -76,6 +84,11 @@ pub enum Expression {
         span: Span,
         typ: Rc<Type>,
     },
+    Bool {
+        value: bool,
+        span: Span,
+        typ: Rc<Type>,
+    },
 }
 
 impl Expression {
@@ -112,10 +125,8 @@ impl Expression {
                 name: name.to_owned(),
                 span: *span,
             },
-            Expression::Int { value, span, .. } => ast::Expression::Int {
-                value: *value,
-                span: *span,
-            },
+            &Expression::Int { value, span, .. } => ast::Expression::Int { value, span },
+            &Expression::Bool { value, span, .. } => ast::Expression::Bool { value, span },
         }
     }
 }
@@ -136,6 +147,18 @@ impl Statement {
             },
             Statement::Return { expr, span, .. } => ast::Statement::Return {
                 expr: expr.as_source(),
+                span: *span,
+            },
+            Statement::IfElse {
+                cond,
+                then,
+                otherwise,
+                span,
+                ..
+            } => ast::Statement::IfElse {
+                cond: cond.as_source(),
+                then: then.iter().map(|x| x.as_source()).collect(),
+                otherwise: otherwise.iter().map(|x| x.as_source()).collect(),
                 span: *span,
             },
         }
@@ -163,7 +186,8 @@ impl Expression {
             | Expression::Call { typ, .. }
             | Expression::Tuple { typ, .. }
             | Expression::Var { typ, .. }
-            | Expression::Int { typ, .. } => Rc::clone(typ),
+            | Expression::Int { typ, .. }
+            | Expression::Bool { typ, .. } => Rc::clone(typ),
         }
     }
 }

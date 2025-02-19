@@ -1,0 +1,11 @@
+fn fac(n: int) -> int {
+    if n <> 0 {
+        return n * fac(n - 1);
+    } else {
+        return 1;
+    }
+}
+
+fn main(argc: int) -> int {
+    return fac(argc);
+}
