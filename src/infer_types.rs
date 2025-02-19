@@ -152,7 +152,57 @@ fn infer_type_of_expr(e: ast::Expression, ctx: &Ctx) -> Result<(Rc<Type>, Expres
                 },
             ))
         }
-        ast::Expression::New { .. } => todo!(),
+        ast::Expression::New { inner, span } => {
+            let (typ, inner) = infer_type_of_expr(*inner, ctx)?;
+            let typ = Rc::new(Type::Ref(typ, Span::empty()));
+
+            Ok((
+                Rc::clone(&typ),
+                Expression::New {
+                    span,
+                    typ,
+                    inner: Box::new(inner),
+                },
+            ))
+        }
+        ast::Expression::Deref { inner, span } => {
+            let (typ, inner) = infer_type_of_expr(*inner, ctx)?;
+            let Type::Ref(typ, _) = &*typ else {
+                return Err(TypeError::msg(
+                    format!("{inner} is of type {typ} but needs to be a pointer type"),
+                    span,
+                ));
+            };
+
+            Ok((
+                Rc::clone(typ),
+                Expression::Deref {
+                    inner: Box::new(inner),
+                    span,
+                    typ: Rc::clone(typ),
+                },
+            ))
+        }
+
+        ast::Expression::Free { inner, span } => {
+            let (typ, inner) = infer_type_of_expr(*inner, ctx)?;
+            let Type::Ref(typ, _) = &*typ else {
+                return Err(TypeError::msg(
+                    format!("{inner} is of type {typ} but needs to be a pointer type"),
+                    span,
+                ));
+            };
+
+            Ok((
+                Rc::clone(typ),
+                Expression::Free {
+                    inner: Box::new(inner),
+                    span,
+                    typ: Rc::clone(typ),
+                },
+            ))
+        }
+
         ast::Expression::Tuple { elems, span } => {
             let elems = elems
                 .into_iter()
@@ -369,5 +419,10 @@ fn infer_statement(stmt: ast::Statement, ctx: &mut Ctx) -> Result<Statement> {
                 span,
             })
         }
+        ast::Statement::Mutate { lhs, rhs, span } => Ok(Statement::Mutate {
+            lhs,
+            rhs: infer_type_of_expr(rhs, ctx)?.1,
+            span,
+        }),
     }
 }

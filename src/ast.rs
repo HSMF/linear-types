@@ -104,6 +104,11 @@ pub enum Statement {
         otherwise: Block,
         span: Span,
     },
+    Mutate {
+        lhs: String,
+        rhs: Expression,
+        span: Span,
+    },
 }
 
 impl Spanned for Statement {
@@ -111,7 +116,8 @@ impl Spanned for Statement {
         match self {
             Statement::Let { span, .. }
             | Statement::Return { span, .. }
-            | Statement::IfElse { span, .. } => *span,
+            | Statement::IfElse { span, .. }
+            | Statement::Mutate { span, .. } => *span,
         }
     }
 }
@@ -135,6 +141,14 @@ pub enum Expression {
         span: Span,
     },
     New {
+        inner: Box<Expression>,
+        span: Span,
+    },
+    Deref {
+        inner: Box<Expression>,
+        span: Span,
+    },
+    Free {
         inner: Box<Expression>,
         span: Span,
     },
@@ -166,6 +180,8 @@ impl Spanned for Expression {
         match self {
             Expression::Binop { span, .. }
             | Expression::New { span, .. }
+            | Expression::Deref { span, .. }
+            | Expression::Free { span, .. }
             | Expression::Call { span, .. }
             | Expression::Tuple { span, .. }
             | Expression::Int { span, .. }
@@ -221,6 +237,20 @@ impl Expression {
             Expression::New { inner, .. } => {
                 write!(f, "(")?;
                 write!(f, "new")?;
+                inner.display(f, 3)?;
+                write!(f, ")")?;
+                Ok(())
+            }
+            Expression::Deref { inner, .. } => {
+                write!(f, "(")?;
+                write!(f, "*")?;
+                inner.display(f, 3)?;
+                write!(f, ")")?;
+                Ok(())
+            }
+            Expression::Free { inner, .. } => {
+                write!(f, "(")?;
+                write!(f, "free")?;
                 inner.display(f, 3)?;
                 write!(f, ")")?;
                 Ok(())
@@ -296,6 +326,9 @@ impl Statement {
                 }
                 writeln!(f)?;
                 Ok(())
+            }
+            Statement::Mutate { lhs, rhs, .. } => {
+                writeln!(f, "{lhs} <- {rhs};")
             }
             Statement::Return { expr, .. } => write!(f, "return {expr};"),
         }

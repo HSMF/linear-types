@@ -18,6 +18,7 @@ impl Token {
             "type" => TokenKind::Type,
             "let" => TokenKind::Let,
             "new" => TokenKind::New,
+            "free" => TokenKind::Free,
             "return" => TokenKind::Return,
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
@@ -33,6 +34,7 @@ impl Token {
             "*" => TokenKind::Times,
             "/" => TokenKind::Div,
             "->" => TokenKind::Arrow,
+            "<-" => TokenKind::Gets,
             "(" => TokenKind::OpenParen,
             ")" => TokenKind::CloseParen,
             "{" => TokenKind::OpenBrace,
@@ -87,6 +89,8 @@ pub enum TokenKind {
     Return,
     False,
     True,
+    Free,
+    Gets,
 }
 
 impl TokenKind {
@@ -207,7 +211,7 @@ impl Iterator for Lexer<'_> {
 
             '<' => {
                 let after = self.s[1..].chars().next();
-                if after == Some('>') {
+                if matches!(after, Some('>' | '-')) {
                     let s = self.split_at(2);
                     return Some(Token::new_from_str(start, s));
                 }

@@ -289,6 +289,15 @@ impl Parser<'_> {
                 otherwise,
                 span: if_tok.span().merge(span),
             })
+        } else if let Some((lhs, span)) = self.accept_ident() {
+            self.expect(TokenKind::Gets)?;
+            let rhs = self.expression()?;
+            let semi = self.expect(TokenKind::Semicolon)?;
+            Ok(Statement::Mutate {
+                lhs,
+                rhs,
+                span: span.merge(semi.span()),
+            })
         } else {
             Err(self.error("statement: syntax error"))
         }
@@ -392,9 +401,21 @@ impl Parser<'_> {
                 span: t.span(),
             }
         } else if let Some(new) = self.accept(TokenKind::New) {
-            let e = self.expression()?;
+            let e = self.atom()?;
             Expression::New {
                 span: new.span().merge(e.span()),
+                inner: Box::new(e),
+            }
+        } else if let Some(new) = self.accept(TokenKind::Free) {
+            let e = self.atom()?;
+            Expression::Free {
+                span: new.span().merge(e.span()),
+                inner: Box::new(e),
+            }
+        } else if let Some(star) = self.accept(TokenKind::Times) {
+            let e = self.atom()?;
+            Expression::Deref {
+                span: star.span().merge(e.span()),
                 inner: Box::new(e),
             }
         } else {

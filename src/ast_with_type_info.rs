@@ -47,6 +47,11 @@ pub enum Statement {
         otherwise: Block,
         span: Span,
     },
+    Mutate {
+        lhs: String,
+        rhs: Expression,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +64,16 @@ pub enum Expression {
         typ: Rc<Type>,
     },
     New {
+        inner: Box<Expression>,
+        span: Span,
+        typ: Rc<Type>,
+    },
+    Deref {
+        inner: Box<Expression>,
+        span: Span,
+        typ: Rc<Type>,
+    },
+    Free {
         inner: Box<Expression>,
         span: Span,
         typ: Rc<Type>,
@@ -107,6 +122,14 @@ impl Expression {
                 span: *span,
             },
             Expression::New { inner, span, .. } => ast::Expression::New {
+                inner: Box::new(inner.as_source()),
+                span: *span,
+            },
+            Expression::Deref { inner, span, .. } => ast::Expression::Deref {
+                inner: Box::new(inner.as_source()),
+                span: *span,
+            },
+            Expression::Free { inner, span, .. } => ast::Expression::Free {
                 inner: Box::new(inner.as_source()),
                 span: *span,
             },
@@ -161,6 +184,11 @@ impl Statement {
                 otherwise: otherwise.iter().map(|x| x.as_source()).collect(),
                 span: *span,
             },
+            Statement::Mutate { lhs, rhs, span } => ast::Statement::Mutate {
+                lhs: lhs.clone(),
+                rhs: rhs.as_source(),
+                span: *span,
+            },
         }
     }
 }
@@ -183,6 +211,8 @@ impl Expression {
         match self {
             Expression::Binop { typ, .. }
             | Expression::New { typ, .. }
+            | Expression::Deref { typ, .. }
+            | Expression::Free { typ, .. }
             | Expression::Call { typ, .. }
             | Expression::Tuple { typ, .. }
             | Expression::Var { typ, .. }

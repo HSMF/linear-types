@@ -1,0 +1,16 @@
+fn incr(x: ref int) -> () {
+    x <- *x + 1;
+    return ();
+}
+
+fn main() -> int {
+    let r : ref int = new 7;
+    let x : () = incr(r);
+    let x : () = incr(r);
+    let x : () = incr(r);
+    let x : () = incr(r);
+    let x : () = incr(r);
+    let x : () = incr(r);
+    let x : () = incr(r);
+    return free r;
+}

@@ -113,7 +113,7 @@ impl<'a> Codegen<'a> {
                 "int" => llvm.i64_type().into(),
                 _ => todo!("compile type variable {name}"),
             },
-            Type::Ref(_, _span) => todo!(),
+            Type::Ref(_, _span) => llvm.ptr_type(AddressSpace::default()).into(),
             Type::Product(items, _span) => {
                 let item_types: Vec<_> = items
                     .iter()
@@ -269,6 +269,14 @@ impl<'a> Codegen<'a> {
 
                 Ok(diverges_else && diverges_then)
             }
+            Statement::Mutate { lhs, rhs, .. } => {
+                let dest = Rc::clone(scope.names.get(lhs).unwrap());
+                let dest = dest.into_pointer_value();
+                let rhs = self.compile_expr(rhs, scope)?;
+
+                self.builder.build_store(dest, rhs)?;
+                Ok(false)
+            }
         }
     }
 
@@ -303,7 +311,33 @@ impl<'a> Codegen<'a> {
 
                 Ok(BasicValueEnum::IntValue(res))
             }
-            Expression::New { inner, .. } => todo!("compile {inner}"),
+            Expression::New { inner, .. } => {
+                let typ = self.compile_typ_derefed(&inner.typ());
+                let inner = self.compile_expr(inner, scope)?;
+                let loc = self.builder.build_malloc(typ, "")?;
+                self.builder.build_store(loc, inner)?;
+
+                Ok(loc.into())
+            }
+            Expression::Deref { inner, typ, .. } => {
+                let inner = self.compile_expr(inner, scope)?;
+                let typ = self.compile_typ_derefed(typ);
+
+                let loaded = self
+                    .builder
+                    .build_load(typ, inner.into_pointer_value(), "")?;
+
+                Ok(loaded)
+            }
+            Expression::Free { inner, typ, .. } => {
+                let inner = self.compile_expr(inner, scope)?.into_pointer_value();
+                let typ = self.compile_typ_derefed(typ);
+
+                let loaded = self.builder.build_load(typ, inner, "")?;
+                self.builder.build_free(inner)?;
+
+                Ok(loaded)
+            }
             Expression::Tuple { elems, typ, .. } => {
                 let elems = elems
                     .iter()
