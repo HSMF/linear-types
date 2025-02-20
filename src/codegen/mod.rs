@@ -447,6 +447,10 @@ impl<'a> Compiled<'a> {
         self.module.print_to_stderr();
     }
 
+    pub fn print_to_string(&self) -> String {
+        self.module.print_to_string().to_string()
+    }
+
     #[allow(dead_code)]
     pub fn print_to_file(&self, p: impl AsRef<Path>) -> std::result::Result<(), String> {
         self.module.print_to_file(p).map_err(|e| e.to_string())
