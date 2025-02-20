@@ -5,6 +5,7 @@ pub type Result<T> = std::result::Result<T, TypeError>;
 use crate::{
     ast::{self, Pat, Spanned, Type},
     ast_with_type_info::{Expression, FuncDecl, Item, Program, Statement},
+    builtin::builtins,
     span::Span,
 };
 
@@ -289,6 +290,10 @@ pub fn infer(prog: ast::Program) -> Result<Program> {
                 (name.to_owned(), Rc::new(typ))
             },
         )
+        .chain(builtins().into_iter().map(|builtin| {
+            let typ = builtin.fn_type();
+            (builtin.name().to_owned(), Rc::new(typ))
+        }))
         .collect();
 
     let ctx = Ctx {

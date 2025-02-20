@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{io::Write, path::PathBuf, process::exit};
 
 use clap::Parser as _;
 use codegen::Codegen;
@@ -8,6 +8,7 @@ use tok::{Lexer, Token};
 
 mod ast;
 mod ast_with_type_info;
+mod builtin;
 mod codegen;
 mod infer_types;
 mod parse;
@@ -84,12 +85,26 @@ fn main() {
     }
 
     compiled.emit("./target/foo.o").expect("could emit");
-    std::process::Command::new("clang")
+    let output = std::process::Command::new("clang")
+        .arg("./src/stdlib.c")
+        .arg("-c")
+        .arg("-o")
+        .arg("target/stdlib.o")
+        .output()
+        .expect("could compile stdlib");
+    assert!(output.status.success());
+    let output = std::process::Command::new("clang")
         .arg("./target/foo.o")
+        .arg("./target/stdlib.o")
         .arg("-o")
         .arg("target/foo")
         .output()
         .expect("could run clang");
+    if output.status.success() {
+        std::io::stderr().write_all(&output.stderr).unwrap();
+        std::io::stderr().write_all(&output.stdout).unwrap();
+        exit(output.status.code().unwrap_or(1))
+    }
 }
 
 #[cfg(test)]

@@ -14,6 +14,7 @@ use thiserror::Error;
 use crate::{
     ast::{Pat, Type},
     ast_with_type_info::{Expression, FuncDecl, Item, Program, Statement},
+    builtin::builtins,
 };
 
 pub struct Codegen<'a> {
@@ -64,6 +65,22 @@ impl<'a> Codegen<'a> {
         }
     }
 
+    fn declare_func<'b>(
+        &mut self,
+        args: impl IntoIterator<Item = &'b Type>,
+        ret: &Type,
+        name: &str,
+    ) {
+        let args: Vec<_> = args
+            .into_iter()
+            .map(|arg| self.compile_typ(arg).into())
+            .collect();
+        let ret = self.compile_typ(ret);
+        let fnt = ret.fn_type(&args, false);
+        let function = self.module.add_function(name, fnt, None);
+        self.functions.insert(name.to_owned(), Rc::new(function));
+    }
+
     pub fn compile(llvm: &'a Context, mod_name: &str, prog: &Program) -> Compiled<'a> {
         let mut build = Codegen::new(llvm, mod_name);
 
@@ -71,17 +88,13 @@ impl<'a> Codegen<'a> {
             match item {
                 Item::Type(_) => {}
                 Item::Func(func) => {
-                    let args: Vec<_> = func
-                        .args
-                        .iter()
-                        .map(|arg| build.compile_typ(&arg.typ).into())
-                        .collect();
-                    let ret = build.compile_typ(&func.ret_typ);
-                    let fnt = ret.fn_type(&args, false);
-                    let function = build.module.add_function(&func.name, fnt, None);
-                    build.functions.insert(func.name.clone(), Rc::new(function));
+                    build.declare_func(func.args.iter().map(|x| &x.typ), &func.ret_typ, &func.name);
                 }
             }
+        }
+
+        for builtin in builtins() {
+            build.declare_func(&builtin.args, &builtin.ret_typ, builtin.name());
         }
 
         for item in &prog.0 {
@@ -249,8 +262,8 @@ impl<'a> Codegen<'a> {
                 let cond = self.compile_expr(cond, scope).unwrap();
                 self.builder.build_conditional_branch(
                     cond.into_int_value(),
-                    otherwise_block,
                     then_block,
+                    otherwise_block,
                 )?;
 
                 self.builder.position_at_end(then_block);

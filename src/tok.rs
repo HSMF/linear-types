@@ -151,7 +151,7 @@ impl<'a> Lexer<'a> {
 }
 
 fn is_ident_start(c: char) -> bool {
-    c.is_ascii_alphabetic()
+    c.is_ascii_alphabetic() || c == '_'
 }
 fn is_ident_cont(c: char) -> bool {
     is_ident_start(c) || c.is_ascii_digit()

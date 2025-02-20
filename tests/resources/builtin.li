@@ -1,0 +1,14 @@
+fn countdown(n: int) -> int {
+    let x : () = print_int(n);
+    let x : () = print_ch(10);
+    if n = 0 {
+        return n;
+    } else {
+        let r : int = countdown(n - 1);
+        return r;
+    }
+}
+
+fn main(argc: int) -> int {
+    return countdown(9 + argc);
+}

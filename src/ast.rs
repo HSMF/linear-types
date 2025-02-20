@@ -43,6 +43,12 @@ pub enum Type {
     Fun(Vec<Type>, Rc<Type>, Span),
 }
 
+impl Type {
+    pub fn int() -> Type {
+        Type::Var("int".into(), Span::empty())
+    }
+}
+
 impl Spanned for Type {
     fn span(&self) -> Span {
         match self {
