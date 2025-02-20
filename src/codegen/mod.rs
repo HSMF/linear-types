@@ -70,6 +70,7 @@ impl<'a> Codegen<'a> {
         args: impl IntoIterator<Item = &'b Type>,
         ret: &Type,
         name: &str,
+        sym_name: &str,
     ) {
         let args: Vec<_> = args
             .into_iter()
@@ -77,7 +78,7 @@ impl<'a> Codegen<'a> {
             .collect();
         let ret = self.compile_typ(ret);
         let fnt = ret.fn_type(&args, false);
-        let function = self.module.add_function(name, fnt, None);
+        let function = self.module.add_function(sym_name, fnt, None);
         self.functions.insert(name.to_owned(), Rc::new(function));
     }
 
@@ -88,13 +89,23 @@ impl<'a> Codegen<'a> {
             match item {
                 Item::Type(_) => {}
                 Item::Func(func) => {
-                    build.declare_func(func.args.iter().map(|x| &x.typ), &func.ret_typ, &func.name);
+                    build.declare_func(
+                        func.args.iter().map(|x| &x.typ),
+                        &func.ret_typ,
+                        &func.name,
+                        &func.name,
+                    );
                 }
             }
         }
 
         for builtin in builtins() {
-            build.declare_func(&builtin.args, &builtin.ret_typ, builtin.name());
+            build.declare_func(
+                &builtin.args,
+                &builtin.ret_typ,
+                builtin.name(),
+                builtin.link_name(),
+            );
         }
 
         for item in &prog.0 {
