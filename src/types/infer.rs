@@ -1,25 +1,14 @@
-use std::{borrow::Cow, collections::HashMap, fmt::Display, rc::Rc};
-
-pub type Result<T> = std::result::Result<T, TypeError>;
+use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use crate::{
     ast::{self, Pat, Spanned, Type},
-    ast_with_type_info::{Expression, FuncDecl, Item, Program, Statement},
     builtin::builtins,
     span::Span,
+    types::ast::{Expression, FuncDecl, Item, Program, Statement},
 };
 
-#[derive(Debug, Clone)]
-pub struct TypeError {
-    msg: Cow<'static, str>,
-    span: Span,
-}
+use super::{TypeError, Result};
 
-impl Display for TypeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{}: {}", self.span, self.msg)
-    }
-}
 
 #[derive(Debug, Clone)]
 struct Ctx {

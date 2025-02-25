@@ -1,9 +1,8 @@
-use std::rc::Rc;
-
 use crate::{
     ast::{self, Arg, OpCode, Type, TypeDecl},
     span::Span,
 };
+use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeInfo(Type);
@@ -221,3 +220,4 @@ impl Expression {
         }
     }
 }
+

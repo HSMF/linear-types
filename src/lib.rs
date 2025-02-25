@@ -5,19 +5,18 @@ use std::{
 };
 
 use codegen::Codegen;
-use infer_types::TypeError;
+use types::TypeError;
 use inkwell::context::Context;
 use parse::{ParseError, Parser};
 use tok::{Lexer, Token};
 
 pub mod ast;
-pub mod ast_with_type_info;
 pub mod builtin;
 pub mod codegen;
-pub mod infer_types;
 pub mod parse;
 pub mod span;
 pub mod tok;
+pub mod types;
 
 fn print_tok(max_width: usize, tok: Token) {
     let start = tok.span().start.col;
@@ -106,7 +105,7 @@ pub struct Parsed {
 
 impl Parsed {
     pub fn infer_types(self) -> Result<WithInferredTypes, TypeError> {
-        let program = infer_types::infer(self.program)?;
+        let program = types::infer::infer(self.program)?;
         Ok(WithInferredTypes {
             source_file: self.source_file,
             program,
@@ -116,7 +115,7 @@ impl Parsed {
 
 pub struct WithInferredTypes {
     source_file: SourceFile,
-    program: ast_with_type_info::Program,
+    program: types::ast::Program,
 }
 
 impl WithInferredTypes {

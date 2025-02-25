@@ -13,7 +13,7 @@ use thiserror::Error;
 
 use crate::{
     ast::{Pat, Type},
-    ast_with_type_info::{Expression, FuncDecl, Item, Program, Statement},
+    types::ast::{Expression, FuncDecl, Item, Program, Statement},
     builtin::builtins,
 };
 
