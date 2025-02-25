@@ -1,4 +1,8 @@
-use std::{convert::Infallible, io::Write as _, path::{Path, PathBuf}, process::exit};
+use std::{
+    convert::Infallible,
+    io::Write as _,
+    path::{Path, PathBuf},
+};
 
 use codegen::Codegen;
 use infer_types::TypeError;
@@ -123,6 +127,10 @@ impl WithInferredTypes {
         Ok(compiled.print_to_string())
     }
 
+    pub fn type_check(self) -> Result<Self, String> {
+        todo!()
+    }
+
     pub fn codegen_to_obj_file(
         self,
         artifact_dir: impl AsRef<Path>,
@@ -156,8 +164,7 @@ pub struct ObjectFiles {
 }
 
 impl ObjectFiles {
-    pub fn link(self, stdlib: impl AsRef<Path>, target: impl AsRef<Path> ) -> Result<(), ()> {
-
+    pub fn link(self, stdlib: impl AsRef<Path>, target: impl AsRef<Path>) -> Result<(), Vec<u8>> {
         let stdlib_obj = self.artifact_dir.join("stdlib.o");
 
         let output = std::process::Command::new("clang")
@@ -176,10 +183,11 @@ impl ObjectFiles {
             .output()
             .expect("could run clang");
 
-        if output.status.success() {
-            std::io::stderr().write_all(&output.stderr).unwrap();
-            std::io::stderr().write_all(&output.stdout).unwrap();
-            exit(output.status.code().unwrap_or(1))
+        if !output.status.success() {
+            let mut buf = Vec::new();
+            buf.write_all(&output.stderr).unwrap();
+            buf.write_all(&output.stdout).unwrap();
+            return Err(buf);
         }
 
         Ok(())
